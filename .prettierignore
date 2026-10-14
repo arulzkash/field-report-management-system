@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+backend/src/generated/
+package-lock.json
+.agents/
+skills-lock.json
+references/
+.env
+.env.*
