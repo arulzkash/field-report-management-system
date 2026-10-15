@@ -1,5 +1,10 @@
 import { requestApi } from '../../lib/api';
-import type { CreateReportInput, EditReportInput, Report } from './report.types';
+import type {
+  CreateReportInput,
+  DecisionStatus,
+  EditReportInput,
+  Report,
+} from './report.types';
 
 export async function listReports(signal: AbortSignal): Promise<Report[]> {
   const response = await requestApi<{ data: Report[] }>('/reports', { signal });
@@ -30,6 +35,21 @@ export async function editReport(id: string, input: EditReportInput): Promise<Re
     {
       method: 'PATCH',
       body: input,
+    },
+  );
+  return response.data;
+}
+
+export async function decideReport(
+  id: string,
+  status: DecisionStatus,
+  version: number,
+): Promise<Report> {
+  const response = await requestApi<{ data: Report }>(
+    `/reports/${encodeURIComponent(id)}/status`,
+    {
+      method: 'PATCH',
+      body: { status, version },
     },
   );
   return response.data;

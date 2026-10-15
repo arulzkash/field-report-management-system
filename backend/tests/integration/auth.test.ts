@@ -63,6 +63,7 @@ function sessionCookie(response: Response): string {
 beforeAll(async () => {
   migrateTestDatabase(testUrl);
   await prisma.session.deleteMany();
+  await prisma.approvalHistory.deleteMany();
   await prisma.report.deleteMany();
   await prisma.user.deleteMany();
   await seedDemoUsers(prisma, passwords);

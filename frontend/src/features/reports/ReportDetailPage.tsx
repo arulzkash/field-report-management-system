@@ -1,4 +1,5 @@
 import { Link, useParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { ReportLoadState } from './ReportLoadState';
 import { ReportStatusBadge } from './ReportStatusBadge';
 import { formatReportDate } from './report-date';
@@ -6,6 +7,8 @@ import { useReports } from './useReports';
 import './reports.css';
 
 export function ReportDetailPage() {
+  const { session } = useAuth();
+  const isReporter = session.user?.role === 'pelapor';
   const { id } = useParams<{ id: string }>();
   const { state, retry } = useReports(id);
   const report = state.status === 'ready' ? state.reports[0] : undefined;
@@ -13,11 +16,11 @@ export function ReportDetailPage() {
   return (
     <main className="page reports-page report-detail-page">
       <Link className="back-link" to="/reports">
-        Back to my reports
+        {isReporter ? 'Back to my reports' : 'Back to review reports'}
       </Link>
       <header className="reports-header">
         <h1>Report details</h1>
-        {report?.status === 'pending' && (
+        {isReporter && report?.status === 'pending' && (
           <Link className="button-link" to={`/reports/${report.id}/edit`}>
             Edit report
           </Link>
@@ -57,7 +60,7 @@ export function ReportDetailPage() {
             <h3 id="description-heading">Description</h3>
             <p>{report.description}</p>
           </section>
-          {report.status !== 'pending' && (
+          {isReporter && report.status !== 'pending' && (
             <p className="report-readonly-note">
               This report is read-only. Only Pending reports can be edited.
             </p>

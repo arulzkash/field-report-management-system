@@ -28,6 +28,9 @@ export function AppLayout() {
           {session.user?.role === 'pelapor' && (
             <NavLink to="/reports">My reports</NavLink>
           )}
+          {session.user?.role === 'approver' && (
+            <NavLink to="/reports">Review reports</NavLink>
+          )}
           <NavLink
             to={`/workspace/${session.user?.role === 'pelapor' ? 'reporter' : session.user?.role}`}
           >

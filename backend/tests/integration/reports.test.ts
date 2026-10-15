@@ -16,6 +16,7 @@ const users = {
   a: { id: randomUUID(), role: 'pelapor' },
   b: { id: randomUUID(), role: 'pelapor' },
   approver: { id: randomUUID(), role: 'approver' },
+  approverB: { id: randomUUID(), role: 'approver' },
   admin: { id: randomUUID(), role: 'admin' },
 } as const;
 const input = {
@@ -28,6 +29,7 @@ let cookies: Record<keyof typeof users, string>;
 beforeAll(async () => {
   migrateTestDatabase(testUrl);
   await prisma.session.deleteMany();
+  await prisma.approvalHistory.deleteMany();
   await prisma.report.deleteMany();
   await prisma.user.deleteMany();
   const passwordHash = await hashPassword('Report-Test-Password-2026!');
@@ -36,7 +38,7 @@ beforeAll(async () => {
     data: Object.entries(users).map(([name, user]) => ({
       ...user,
       name,
-      email: `${name}@reports.test`,
+      email: `${name.toLowerCase()}@reports.test`,
       passwordHash,
     })),
   });
@@ -51,6 +53,7 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
+  await prisma.approvalHistory.deleteMany();
   await prisma.report.deleteMany();
   await prisma.session.deleteMany();
   cookies = {} as Record<keyof typeof users, string>;
@@ -91,6 +94,333 @@ function edit(id: string, body: object, actor: keyof typeof users = 'a') {
 async function fixture(reporterId = users.a.id, createdAt = new Date()) {
   return prisma.report.create({ data: { ...input, reporterId, createdAt } });
 }
+
+function decide(id: string, body: object, actor: keyof typeof users = 'approver') {
+  return request(app)
+    .patch(`/api/reports/${id}/status`)
+    .set('Origin', origin)
+    .set('Cookie', cookies[actor])
+    .send(body);
+}
+
+describe('report decisions and atomic history', () => {
+  it.each([
+    ['pending', 'approved'],
+    ['pending', 'rejected'],
+    ['approved', 'rejected'],
+    ['rejected', 'approved'],
+  ] as const)(
+    'commits %s to %s with the authenticated actor and server timestamp',
+    async (fromStatus, status) => {
+      const report = await fixture();
+      await prisma.report.update({
+        where: { id: report.id },
+        data: { status: fromStatus },
+      });
+      const before = Date.now();
+      const response = await decide(report.id, { status, version: 1 });
+      expect(response.status).toBe(200);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.body.data).toMatchObject({
+        ...input,
+        id: report.id,
+        reporterId: users.a.id,
+        status,
+        version: 2,
+        createdAt: report.createdAt.toISOString(),
+      });
+      const history = await prisma.approvalHistory.findMany({
+        where: { reportId: report.id },
+      });
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({
+        reportId: report.id,
+        approverId: users.approver.id,
+        fromStatus,
+        toStatus: status,
+        reportVersion: 2,
+      });
+      expect(history[0]!.decidedAt.getTime()).toBeGreaterThanOrEqual(before - 1000);
+      expect(history[0]!.decidedAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+      expect(response.text).not.toMatch(/passwordHash|tokenHash|sessions/);
+      const stored = await prisma.report.findUniqueOrThrow({ where: { id: report.id } });
+      expect(response.body.data.updatedAt).toBe(stored.updatedAt.toISOString());
+    },
+  );
+
+  it('preserves every decision through reversals by different Approvers', async () => {
+    const report = await fixture();
+    expect((await decide(report.id, { status: 'approved', version: 1 })).status).toBe(
+      200,
+    );
+    expect(
+      (await decide(report.id, { status: 'rejected', version: 2 }, 'approverB')).status,
+    ).toBe(200);
+    const response = await decide(report.id, { status: 'approved', version: 3 });
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({ status: 'approved', version: 4 });
+    const history = await prisma.approvalHistory.findMany({
+      where: { reportId: report.id },
+      orderBy: { reportVersion: 'asc' },
+    });
+    expect(
+      history.map(({ fromStatus, toStatus, reportVersion, approverId }) => ({
+        fromStatus,
+        toStatus,
+        reportVersion,
+        approverId,
+      })),
+    ).toEqual([
+      {
+        fromStatus: 'pending',
+        toStatus: 'approved',
+        reportVersion: 2,
+        approverId: users.approver.id,
+      },
+      {
+        fromStatus: 'approved',
+        toStatus: 'rejected',
+        reportVersion: 3,
+        approverId: users.approverB.id,
+      },
+      {
+        fromStatus: 'rejected',
+        toStatus: 'approved',
+        reportVersion: 4,
+        approverId: users.approver.id,
+      },
+    ]);
+  });
+
+  it.each(['approved', 'rejected'] as const)(
+    'rejects repeating %s without adding history or updating timestamps',
+    async (status) => {
+      const report = await fixture();
+      await decide(report.id, { status, version: 1 });
+      const before = await prisma.report.findUniqueOrThrow({ where: { id: report.id } });
+      const response = await decide(report.id, { status, version: 2 });
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe('REPORT_DECISION_CONFLICT');
+      expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+        before,
+      );
+      expect(await prisma.approvalHistory.count()).toBe(1);
+    },
+  );
+
+  it('rejects stale reversals without changing the committed decision', async () => {
+    const report = await fixture();
+    await decide(report.id, { status: 'approved', version: 1 });
+    const response = await decide(report.id, { status: 'rejected', version: 1 });
+    expect(response.status).toBe(409);
+    expect(
+      await prisma.report.findUniqueOrThrow({ where: { id: report.id } }),
+    ).toMatchObject({ status: 'approved', version: 2 });
+    expect(await prisma.approvalHistory.count()).toBe(1);
+  });
+
+  it('commits only one concurrent decision and one matching history entry', async () => {
+    const report = await fixture();
+    const responses = await Promise.all([
+      decide(report.id, { status: 'approved', version: 1 }),
+      decide(report.id, { status: 'rejected', version: 1 }, 'approverB'),
+    ]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    const winner = responses.findIndex((response) => response.status === 200);
+    const stored = await prisma.report.findUniqueOrThrow({ where: { id: report.id } });
+    const history = await prisma.approvalHistory.findMany();
+    expect(stored).toMatchObject({
+      status: winner === 0 ? 'approved' : 'rejected',
+      version: 2,
+    });
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      toStatus: stored.status,
+      reportVersion: 2,
+      approverId: winner === 0 ? users.approver.id : users.approverB.id,
+    });
+  });
+
+  it('resolves edit versus approval without losing content or decision history', async () => {
+    const report = await fixture();
+    const responses = await Promise.all([
+      edit(report.id, {
+        name: 'Corrected observation',
+        description: 'Corrected details',
+        version: 1,
+      }),
+      decide(report.id, { status: 'approved', version: 1 }),
+    ]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    const stored = await prisma.report.findUniqueOrThrow({ where: { id: report.id } });
+    expect(stored.version).toBe(2);
+    if (responses[0]!.status === 200) {
+      expect(stored).toMatchObject({
+        name: 'Corrected observation',
+        description: 'Corrected details',
+        status: 'pending',
+      });
+      expect(await prisma.approvalHistory.count()).toBe(0);
+      expect((await decide(report.id, { status: 'approved', version: 2 })).status).toBe(
+        200,
+      );
+      expect(await prisma.approvalHistory.findFirstOrThrow()).toMatchObject({
+        reportVersion: 3,
+      });
+    } else {
+      expect(stored).toMatchObject({ ...input, status: 'approved' });
+      expect(await prisma.approvalHistory.count()).toBe(1);
+      expect((await edit(report.id, { ...input, version: 2 })).status).toBe(409);
+    }
+  });
+
+  it.each(['approved', 'rejected'] as const)(
+    'blocks Reporter edits after an actual %s decision',
+    async (status) => {
+      const report = await fixture();
+      expect((await decide(report.id, { status, version: 1 })).status).toBe(200);
+      const decided = await prisma.report.findUniqueOrThrow({ where: { id: report.id } });
+      const history = await prisma.approvalHistory.findMany();
+      const response = await edit(report.id, {
+        name: 'Disallowed edit',
+        description: 'Do not overwrite',
+        version: 2,
+      });
+      expect(response.status).toBe(409);
+      expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+        decided,
+      );
+      expect(await prisma.approvalHistory.findMany()).toEqual(history);
+    },
+  );
+
+  it('rolls back status, version, and updatedAt when the history insert fails', async () => {
+    const report = await fixture();
+    // Occupy the next history version only in this disposable database. The
+    // real insert then fails after the transaction's update, proving rollback.
+    await prisma.approvalHistory.create({
+      data: {
+        reportId: report.id,
+        approverId: users.approver.id,
+        fromStatus: 'pending',
+        toStatus: 'approved',
+        reportVersion: 2,
+      },
+    });
+    const beforeHistory = await prisma.approvalHistory.findMany();
+    const response = await decide(report.id, { status: 'rejected', version: 1 });
+    expect(response.status).toBe(500);
+    expect(response.text).not.toMatch(/prisma|constraint|postgresql|stack/i);
+    expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+      report,
+    );
+    expect(await prisma.approvalHistory.findMany()).toEqual(beforeHistory);
+  });
+
+  it.each(['a', 'b', 'admin'] as const)('denies decisions by %s', async (actor) => {
+    const report = await fixture();
+    expect(
+      (await decide(report.id, { status: 'approved', version: 1 }, actor)).status,
+    ).toBe(403);
+    expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+      report,
+    );
+    expect(await prisma.approvalHistory.count()).toBe(0);
+  });
+
+  it.each([
+    { status: 'pending', version: 1 },
+    { status: 'unknown', version: 1 },
+    { status: 'approved' },
+    { status: 'approved', version: 0 },
+    { status: 'approved', version: -1 },
+    { status: 'approved', version: 1.5 },
+    { status: 'approved', version: '1' },
+    { status: 'approved', version: 2_147_483_647 },
+  ])('rejects invalid decision payload %#', async (body) => {
+    const report = await fixture();
+    expect((await decide(report.id, body)).status).toBe(400);
+    expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+      report,
+    );
+    expect(await prisma.approvalHistory.count()).toBe(0);
+  });
+
+  it.each([
+    'approverId',
+    'decidedAt',
+    'reportVersion',
+    'reporterId',
+    'name',
+    'fromStatus',
+  ])('rejects forged decision field %s', async (field) => {
+    const report = await fixture();
+    expect(
+      (await decide(report.id, { status: 'approved', version: 1, [field]: 'forged' }))
+        .status,
+    ).toBe(400);
+    expect(await prisma.approvalHistory.count()).toBe(0);
+    expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+      report,
+    );
+  });
+
+  it('returns 404 for missing reports and 400 for invalid IDs', async () => {
+    expect((await decide(randomUUID(), { status: 'approved', version: 1 })).status).toBe(
+      404,
+    );
+    expect((await decide('invalid', { status: 'approved', version: 1 })).status).toBe(
+      400,
+    );
+    expect(await prisma.approvalHistory.count()).toBe(0);
+  });
+
+  it('requires authentication, the configured Origin, and JSON', async () => {
+    const report = await fixture();
+    const path = `/api/reports/${report.id}/status`;
+    const anonymous = await request(app)
+      .patch(path)
+      .set('Origin', origin)
+      .send({ status: 'approved', version: 1 });
+    const originless = await request(app)
+      .patch(path)
+      .set('Cookie', cookies.approver)
+      .send({ status: 'approved', version: 1 });
+    const text = await request(app)
+      .patch(path)
+      .set('Cookie', cookies.approver)
+      .set('Origin', origin)
+      .set('Content-Type', 'text/plain')
+      .send('status=approved');
+    expect([anonymous.status, originless.status, text.status]).toEqual([401, 403, 415]);
+    expect(await prisma.approvalHistory.count()).toBe(0);
+  });
+
+  it('protects history relationships and transition constraints in PostgreSQL', async () => {
+    const report = await fixture();
+    await decide(report.id, { status: 'approved', version: 1 });
+    await expect(prisma.report.delete({ where: { id: report.id } })).rejects.toThrow();
+    await expect(
+      prisma.user.delete({ where: { id: users.approver.id } }),
+    ).rejects.toThrow();
+    const data = {
+      reportId: report.id,
+      approverId: users.approver.id,
+      fromStatus: 'approved' as const,
+      toStatus: 'pending' as const,
+      reportVersion: 3,
+    };
+    await expect(prisma.approvalHistory.create({ data })).rejects.toThrow();
+    await expect(
+      prisma.approvalHistory.create({ data: { ...data, toStatus: 'approved' } }),
+    ).rejects.toThrow();
+    await expect(
+      prisma.approvalHistory.create({
+        data: { ...data, toStatus: 'rejected', reportVersion: 1 },
+      }),
+    ).rejects.toThrow();
+  });
+});
 
 describe('editing own pending reports', () => {
   it('saves trimmed content, increments version, and preserves server-owned fields', async () => {
@@ -278,13 +608,11 @@ describe('editing own pending reports', () => {
     expect(response.body.error.code).toBe('INVALID_REPORT_ID');
   });
 
-  it('still has no status decision endpoint', async () => {
+  it('keeps history read endpoints deferred to Slice 5', async () => {
     const report = await fixture();
     const response = await request(app)
-      .patch(`/api/reports/${report.id}/status`)
-      .set('Cookie', cookies.approver)
-      .set('Origin', origin)
-      .send({ status: 'approved', version: 1 });
+      .get(`/api/reports/${report.id}/history`)
+      .set('Cookie', cookies.approver);
     expect(response.status).toBe(404);
   });
 });

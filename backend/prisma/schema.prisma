@@ -18,14 +18,15 @@ enum Role {
 }
 
 model User {
-  id           String    @id @default(uuid()) @db.Uuid
-  name         String    @db.VarChar(150)
-  email        String    @unique @db.VarChar(254)
-  passwordHash String    @map("password_hash") @db.VarChar(60)
+  id           String            @id @default(uuid()) @db.Uuid
+  name         String            @db.VarChar(150)
+  email        String            @unique @db.VarChar(254)
+  passwordHash String            @map("password_hash") @db.VarChar(60)
   role         Role
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   sessions     Session[]
   reports      Report[]
+  decisions    ApprovalHistory[]
 
   @@map("users")
 }
@@ -39,18 +40,34 @@ enum ReportStatus {
 }
 
 model Report {
-  id          String       @id @default(uuid()) @db.Uuid
-  name        String       @db.VarChar(150)
-  description String       @db.VarChar(5000)
-  status      ReportStatus @default(pending)
-  reporterId  String       @map("reporter_id") @db.Uuid
-  reporter    User         @relation(fields: [reporterId], references: [id], onDelete: Restrict)
-  version     Int          @default(1)
-  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id          String            @id @default(uuid()) @db.Uuid
+  name        String            @db.VarChar(150)
+  description String            @db.VarChar(5000)
+  status      ReportStatus      @default(pending)
+  reporterId  String            @map("reporter_id") @db.Uuid
+  reporter    User              @relation(fields: [reporterId], references: [id], onDelete: Restrict)
+  version     Int               @default(1)
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  history     ApprovalHistory[]
 
   @@index([reporterId, createdAt])
   @@map("reports")
+}
+
+model ApprovalHistory {
+  id            String       @id @default(uuid()) @db.Uuid
+  reportId      String       @map("report_id") @db.Uuid
+  approverId    String       @map("approver_id") @db.Uuid
+  fromStatus    ReportStatus @map("from_status")
+  toStatus      ReportStatus @map("to_status")
+  reportVersion Int          @map("report_version")
+  decidedAt     DateTime     @default(now()) @map("decided_at") @db.Timestamptz(3)
+  report        Report       @relation(fields: [reportId], references: [id], onDelete: Restrict)
+  approver      User         @relation(fields: [approverId], references: [id], onDelete: Restrict)
+
+  @@unique([reportId, reportVersion])
+  @@map("approval_history")
 }
 
 model Session {

@@ -38,14 +38,15 @@ export function RequireSession() {
   return <Outlet />;
 }
 
-export function RequireRole({ role }: { role: Role }) {
+export function RequireRole({ role }: { role: Role | Role[] }) {
   const { session } = useAuth();
+  const allowedRoles = Array.isArray(role) ? role : [role];
 
   if (!session.user) {
     return <Navigate to="/login" replace />;
   }
 
-  if (session.user.role !== role) {
+  if (!allowedRoles.includes(session.user.role)) {
     return (
       <main className="page">
         <h1>Access denied</h1>

@@ -27,10 +27,12 @@ export function AppRoutes() {
             </Route>
             <Route element={<RequireRole role="pelapor" />}>
               <Route path="/workspace/reporter" element={<WorkspacePage />} />
-              <Route path="/reports" element={<ReportListPage />} />
               <Route path="/reports/new" element={<CreateReportPage />} />
-              <Route path="/reports/:id" element={<ReportDetailPage />} />
               <Route path="/reports/:id/edit" element={<EditReportPage />} />
+            </Route>
+            <Route element={<RequireRole role={['pelapor', 'approver']} />}>
+              <Route path="/reports" element={<ReportListPage />} />
+              <Route path="/reports/:id" element={<ReportDetailPage />} />
             </Route>
             <Route element={<RequireRole role="approver" />}>
               <Route path="/workspace/approver" element={<WorkspacePage />} />

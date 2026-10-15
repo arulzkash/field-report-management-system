@@ -115,11 +115,62 @@ textarea:focus-visible {
 }
 
 .report-status {
+  white-space: nowrap;
   display: inline-block;
   padding: 3px 10px;
   border-radius: 4px;
   font-size: 0.875rem;
   font-weight: 600;
+}
+
+.reports-table--review th:first-child {
+  width: 34%;
+}
+
+.reports-table--review th:nth-child(2) {
+  width: 16%;
+}
+
+.reports-table--review th:nth-child(3) {
+  width: 24%;
+}
+
+.report-decisions {
+  min-width: 0;
+}
+
+.report-decision-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.report-decision-buttons button {
+  padding: 8px 12px;
+}
+
+.reject-button {
+  background: #fbe9e7;
+  color: #923b35;
+}
+
+.reject-button:hover:not(:disabled) {
+  background: #f3d5d1;
+}
+
+.report-decision-error {
+  margin-top: 12px;
+}
+
+.report-decision-error p {
+  margin-bottom: 12px;
+}
+
+@media (min-width: 601px) and (max-width: 900px) {
+  .reports-table--review th,
+  .reports-table--review td {
+    padding-inline: 12px;
+  }
 }
 
 .report-status--pending {
