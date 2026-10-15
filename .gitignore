@@ -9,3 +9,13 @@ backend/src/generated/
 *.log
 *.tsbuildinfo
 .DS_Store
+
+# Private reference material must stay outside the public repository.
+/references/
+
+# Local development instructions, planning, and agent tooling.
+/AGENTS.md
+/.agents/
+/skills-lock.json
+/docs/requirements.md
+/docs/vertical-slices.md

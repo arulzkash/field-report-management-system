@@ -20,6 +20,7 @@
     "test": "vitest run",
     "build": "npm run generate && tsc -p tsconfig.build.json",
     "db:migrate": "prisma migrate deploy",
+    "db:export": "tsx src/scripts/export-schema.ts",
     "db:seed": "prisma db seed"
   },
   "overrides": {
