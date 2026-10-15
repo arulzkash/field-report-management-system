@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import { readEnvironment } from '../src/config/env.js';
 
@@ -58,5 +59,34 @@ describe('environment configuration', () => {
     expect(result.stderr).toContain('PORT');
     expect(result.stderr).not.toContain(secret);
     expect(result.stdout).not.toContain('API listening');
+  });
+
+  it('does not claim readiness when the port is already occupied', async () => {
+    const listener = createServer();
+
+    await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve));
+    const address = listener.address();
+
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected a local TCP port.');
+    }
+
+    try {
+      const result = spawnSync(process.execPath, ['--import', 'tsx', 'src/server.ts'], {
+        env: {
+          ...process.env,
+          DATABASE_URL: databaseUrl,
+          PORT: String(address.port),
+        },
+        encoding: 'utf8',
+        timeout: 10_000,
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('port is available');
+      expect(result.stdout).not.toContain('API listening');
+    } finally {
+      await new Promise<void>((resolve) => listener.close(() => resolve()));
+    }
   });
 });

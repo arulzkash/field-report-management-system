@@ -1,11 +1,26 @@
 import express, { type Express } from 'express';
+import cookieParser from 'cookie-parser';
+import type { Environment } from './config/env.js';
+import type { PrismaClient } from './generated/prisma/client.js';
+import { checkDatabase as queryDatabase } from './db/prisma.js';
 import { errorHandler } from './middleware/error-handler.js';
+import { validateOrigin } from './middleware/validate-origin.js';
+import { createAuthRouter } from './modules/auth/auth.routes.js';
 
-export function createApp(checkDatabase: () => Promise<void>): Express {
+type AppOptions = {
+  prisma: PrismaClient;
+  environment: Environment;
+  checkDatabase?: () => Promise<void>;
+};
+
+export function createApp(options: AppOptions): Express {
   const app = express();
+  const checkDatabase = options.checkDatabase ?? (() => queryDatabase(options.prisma));
 
   app.disable('x-powered-by');
+  app.use('/api', validateOrigin(options.environment.APP_ORIGIN));
   app.use(express.json({ limit: '16kb' }));
+  app.use(cookieParser());
 
   app.get('/api/health', async (_req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -29,6 +44,8 @@ export function createApp(checkDatabase: () => Promise<void>): Express {
       },
     });
   });
+
+  app.use('/api/auth', createAuthRouter(options.prisma, options.environment));
 
   app.use((_req, res) => {
     res.status(404).json({

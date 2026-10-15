@@ -1,12 +1,14 @@
 import { createApp } from './app.js';
 import { EnvironmentConfigurationError, loadEnvironment } from './config/env.js';
-import { checkDatabase, createPrismaClient } from './db/prisma.js';
+import { createPrismaClient } from './db/prisma.js';
 
 function startServer(): void {
   const environment = loadEnvironment();
   const prisma = createPrismaClient(environment.DATABASE_URL);
-  const app = createApp(() => checkDatabase(prisma));
-  const server = app.listen(environment.PORT, '127.0.0.1', () => {
+  const app = createApp({ prisma, environment });
+  const server = app.listen(environment.PORT, '127.0.0.1');
+
+  server.on('listening', () => {
     console.info(`API listening at http://127.0.0.1:${environment.PORT}`);
   });
 

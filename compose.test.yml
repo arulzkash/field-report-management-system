@@ -1,0 +1,16 @@
+services:
+  test-database:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: field_report_test
+      POSTGRES_DB: field_report_test
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD:?Set TEST_POSTGRES_PASSWORD in backend/.env.test}
+    ports:
+      - '127.0.0.1:55432:5432'
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U field_report_test -d field_report_test']
+      interval: 2s
+      timeout: 3s
+      retries: 20
