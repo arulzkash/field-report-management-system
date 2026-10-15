@@ -11,6 +11,7 @@ import { HealthPage } from '../features/health/HealthPage';
 import { ReportListPage } from '../features/reports/ReportListPage';
 import { CreateReportPage } from '../features/reports/CreateReportPage';
 import { ReportDetailPage } from '../features/reports/ReportDetailPage';
+import { EditReportPage } from '../features/reports/EditReportPage';
 import { AppLayout } from './AppLayout';
 
 export function AppRoutes() {
@@ -29,6 +30,7 @@ export function AppRoutes() {
               <Route path="/reports" element={<ReportListPage />} />
               <Route path="/reports/new" element={<CreateReportPage />} />
               <Route path="/reports/:id" element={<ReportDetailPage />} />
+              <Route path="/reports/:id/edit" element={<EditReportPage />} />
             </Route>
             <Route element={<RequireRole role="approver" />}>
               <Route path="/workspace/approver" element={<WorkspacePage />} />

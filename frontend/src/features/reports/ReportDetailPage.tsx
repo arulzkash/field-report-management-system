@@ -17,6 +17,11 @@ export function ReportDetailPage() {
       </Link>
       <header className="reports-header">
         <h1>Report details</h1>
+        {report?.status === 'pending' && (
+          <Link className="button-link" to={`/reports/${report.id}/edit`}>
+            Edit report
+          </Link>
+        )}
       </header>
       {state.status !== 'ready' && (
         <ReportLoadState
@@ -52,6 +57,11 @@ export function ReportDetailPage() {
             <h3 id="description-heading">Description</h3>
             <p>{report.description}</p>
           </section>
+          {report.status !== 'pending' && (
+            <p className="report-readonly-note">
+              This report is read-only. Only Pending reports can be edited.
+            </p>
+          )}
         </article>
       )}
     </main>

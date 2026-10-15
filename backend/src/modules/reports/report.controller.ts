@@ -3,7 +3,11 @@ import { z } from 'zod';
 import type { PrismaClient } from '../../generated/prisma/client.js';
 import { HttpError } from '../../lib/http-error.js';
 import * as reportService from './report.service.js';
-import { createReportSchema, reportIdSchema } from './report.validation.js';
+import {
+  createReportSchema,
+  editReportSchema,
+  reportIdSchema,
+} from './report.validation.js';
 
 export function createReportController(prisma: PrismaClient) {
   const create: RequestHandler = async (req, res) => {
@@ -48,5 +52,36 @@ export function createReportController(prisma: PrismaClient) {
     res.json({ data: await reportService.getReport(prisma, req.auth.user, id.data) });
   };
 
-  return { create, list, detail };
+  const edit: RequestHandler = async (req, res) => {
+    if (!req.auth) {
+      throw new HttpError(401, 'UNAUTHENTICATED', 'Please log in to continue.');
+    }
+
+    const id = reportIdSchema.safeParse(req.params.id);
+
+    if (!id.success) {
+      throw new HttpError(400, 'INVALID_REPORT_ID', 'Enter a valid report ID.');
+    }
+
+    const input = editReportSchema.safeParse(req.body);
+
+    if (!input.success) {
+      throw new HttpError(
+        400,
+        'INVALID_INPUT',
+        'Provide a name of 1–150 characters, a description of 1–5,000 characters, and a valid report version. Only these three fields are accepted.',
+        z.flattenError(input.error).fieldErrors,
+      );
+    }
+
+    const report = await reportService.editReport(
+      prisma,
+      req.auth.user.id,
+      id.data,
+      input.data,
+    );
+    res.json({ data: report });
+  };
+
+  return { create, list, detail, edit };
 }

@@ -225,6 +225,24 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.report-conflict {
+  padding: 24px;
+  margin-bottom: 24px;
+  background: #f7edcf;
+  color: #473915;
+}
+
+.report-conflict h2 {
+  margin-bottom: 12px;
+  font-size: 1.25rem;
+}
+
+.report-readonly-note {
+  margin: 28px 0 0;
+  padding: 16px;
+  background: #f3f5f8;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

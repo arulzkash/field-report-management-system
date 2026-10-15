@@ -12,3 +12,4 @@ export type Report = {
 };
 
 export type CreateReportInput = Pick<Report, 'name' | 'description'>;
+export type EditReportInput = CreateReportInput & Pick<Report, 'version'>;

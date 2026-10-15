@@ -80,9 +80,214 @@ function submit(body: object = input, actor: keyof typeof users = 'a') {
     .send(body);
 }
 
+function edit(id: string, body: object, actor: keyof typeof users = 'a') {
+  return request(app)
+    .patch(`/api/reports/${id}`)
+    .set('Origin', origin)
+    .set('Cookie', cookies[actor])
+    .send(body);
+}
+
 async function fixture(reporterId = users.a.id, createdAt = new Date()) {
   return prisma.report.create({ data: { ...input, reporterId, createdAt } });
 }
+
+describe('editing own pending reports', () => {
+  it('saves trimmed content, increments version, and preserves server-owned fields', async () => {
+    const report = await fixture(users.a.id, new Date('2026-10-01T00:00:00Z'));
+    const response = await edit(report.id, {
+      name: '  Updated observation  ',
+      description: '\nUpdated details\nSecond line.  ',
+      version: report.version,
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body.data).toMatchObject({
+      id: report.id,
+      name: 'Updated observation',
+      description: 'Updated details\nSecond line.',
+      status: 'pending',
+      reporterId: users.a.id,
+      version: 2,
+      createdAt: report.createdAt.toISOString(),
+    });
+    const stored = await prisma.report.findUniqueOrThrow({ where: { id: report.id } });
+    expect(stored.version).toBe(2);
+    expect(stored.updatedAt.getTime()).toBeGreaterThan(report.updatedAt.getTime());
+    const detail = await request(app)
+      .get(`/api/reports/${report.id}`)
+      .set('Cookie', cookies.a);
+    expect(detail.body).toEqual(response.body);
+  });
+
+  it('allows subsequent edits with the latest version', async () => {
+    const report = await fixture();
+    expect((await edit(report.id, { ...input, version: 1 })).status).toBe(200);
+    const response = await edit(report.id, { ...input, name: 'Second edit', version: 2 });
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({
+      name: 'Second edit',
+      version: 3,
+      status: 'pending',
+    });
+  });
+
+  it('returns identical 404 responses for another owner and a missing report', async () => {
+    const report = await fixture(users.b.id);
+    const foreign = await edit(report.id, { ...input, version: 1 });
+    const missing = await edit(randomUUID(), { ...input, version: 1 });
+    expect(foreign.status).toBe(404);
+    expect(missing.status).toBe(404);
+    expect(foreign.body).toEqual(missing.body);
+    expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+      report,
+    );
+  });
+
+  it.each(['admin', 'approver'] as const)('denies edits by %s', async (role) => {
+    const report = await fixture();
+    expect((await edit(report.id, { ...input, version: 1 }, role)).status).toBe(403);
+    expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+      report,
+    );
+  });
+
+  it.each(['approved', 'rejected'] as const)(
+    'rejects edits to %s reports even with the current version',
+    async (status) => {
+      const report = await fixture();
+      const decided = await prisma.report.update({
+        where: { id: report.id },
+        data: { status, version: 2 },
+      });
+      const response = await edit(report.id, {
+        name: 'Forbidden edit',
+        description: 'No overwrite',
+        version: 2,
+      });
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe('REPORT_EDIT_CONFLICT');
+      expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+        decided,
+      );
+    },
+  );
+
+  it('rejects a stale version without changing content or timestamps', async () => {
+    const report = await fixture();
+    await edit(report.id, {
+      name: 'First saved edit',
+      description: 'Saved details',
+      version: 1,
+    });
+    const saved = await prisma.report.findUniqueOrThrow({ where: { id: report.id } });
+    const response = await edit(report.id, {
+      name: 'Stale edit',
+      description: 'Stale details',
+      version: 1,
+    });
+    expect(response.status).toBe(409);
+    expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+      saved,
+    );
+  });
+
+  it('commits exactly one of two concurrent edits using the same version', async () => {
+    const report = await fixture();
+    const first = { name: 'First writer', description: 'First details', version: 1 };
+    const second = { name: 'Second writer', description: 'Second details', version: 1 };
+    const responses = await Promise.all([
+      edit(report.id, first),
+      edit(report.id, second),
+    ]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    const winner = responses.findIndex((response) => response.status === 200);
+    const stored = await prisma.report.findUniqueOrThrow({ where: { id: report.id } });
+    expect(stored).toMatchObject({
+      name: [first, second][winner]!.name,
+      description: [first, second][winner]!.description,
+      version: 2,
+      status: 'pending',
+    });
+    expect(responses[winner]!.body.data.updatedAt).toBe(stored.updatedAt.toISOString());
+  });
+
+  it.each([
+    { name: ' ', description: 'Details', version: 1 },
+    { name: 'Report', description: '\n\t ', version: 1 },
+    { name: 'x'.repeat(151), description: 'Details', version: 1 },
+    { name: 'Report', description: 'x'.repeat(5001), version: 1 },
+    { ...input },
+    { ...input, version: 0 },
+    { ...input, version: -1 },
+    { ...input, version: 1.5 },
+    { ...input, version: '1' },
+    { ...input, version: 2_147_483_647 },
+    { name: 'Report', version: 1 },
+  ])('rejects invalid edit payload %# without writing', async (body) => {
+    const report = await fixture();
+    const response = await edit(report.id, body);
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('INVALID_INPUT');
+    expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+      report,
+    );
+  });
+
+  it.each(['reporterId', 'status', 'id', 'createdAt', 'updatedAt', 'role'])(
+    'rejects the forged edit field %s',
+    async (field) => {
+      const report = await fixture();
+      const response = await edit(report.id, { ...input, version: 1, [field]: 'forged' });
+      expect(response.status).toBe(400);
+      expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+        report,
+      );
+    },
+  );
+
+  it('requires authentication, the correct Origin, and JSON for editing', async () => {
+    const report = await fixture();
+    const body = { ...input, version: 1 };
+    const anonymous = await request(app)
+      .patch(`/api/reports/${report.id}`)
+      .set('Origin', origin)
+      .send(body);
+    const missingOrigin = await request(app)
+      .patch(`/api/reports/${report.id}`)
+      .set('Cookie', cookies.a)
+      .send(body);
+    const textBody = await request(app)
+      .patch(`/api/reports/${report.id}`)
+      .set('Cookie', cookies.a)
+      .set('Origin', origin)
+      .set('Content-Type', 'text/plain')
+      .send('name=Report');
+    expect(anonymous.status).toBe(401);
+    expect(missingOrigin.status).toBe(403);
+    expect(textBody.status).toBe(415);
+    expect(await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).toEqual(
+      report,
+    );
+  });
+
+  it('validates edit IDs before querying the report', async () => {
+    const response = await edit('invalid-id', { ...input, version: 1 });
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('INVALID_REPORT_ID');
+  });
+
+  it('still has no status decision endpoint', async () => {
+    const report = await fixture();
+    const response = await request(app)
+      .patch(`/api/reports/${report.id}/status`)
+      .set('Cookie', cookies.approver)
+      .set('Origin', origin)
+      .send({ status: 'approved', version: 1 });
+    expect(response.status).toBe(404);
+  });
+});
 
 describe('report creation', () => {
   it('persists trimmed content with server-owned defaults and no account secrets', async () => {
@@ -263,16 +468,14 @@ describe('report read boundaries', () => {
     ).toBe(401);
   });
 
-  it('does not provide editing or deletion endpoints in Slice 2', async () => {
+  it('does not provide a deletion endpoint', async () => {
     const report = await fixture();
-    for (const method of ['patch', 'delete'] as const) {
-      const client = request(app);
-      const response = await client[method](`/api/reports/${report.id}`)
-        .set('Origin', origin)
-        .set('Cookie', cookies.a)
-        .send({ name: 'Changed' });
-      expect(response.status).toBe(404);
-    }
+    const response = await request(app)
+      .delete(`/api/reports/${report.id}`)
+      .set('Origin', origin)
+      .set('Cookie', cookies.a)
+      .send({});
+    expect(response.status).toBe(404);
     expect(
       (await prisma.report.findUniqueOrThrow({ where: { id: report.id } })).name,
     ).toBe(input.name);

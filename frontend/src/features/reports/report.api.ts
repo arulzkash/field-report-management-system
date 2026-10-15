@@ -1,5 +1,5 @@
 import { requestApi } from '../../lib/api';
-import type { CreateReportInput, Report } from './report.types';
+import type { CreateReportInput, EditReportInput, Report } from './report.types';
 
 export async function listReports(signal: AbortSignal): Promise<Report[]> {
   const response = await requestApi<{ data: Report[] }>('/reports', { signal });
@@ -21,5 +21,16 @@ export async function createReport(input: CreateReportInput): Promise<Report> {
     method: 'POST',
     body: input,
   });
+  return response.data;
+}
+
+export async function editReport(id: string, input: EditReportInput): Promise<Report> {
+  const response = await requestApi<{ data: Report }>(
+    `/reports/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      body: input,
+    },
+  );
   return response.data;
 }

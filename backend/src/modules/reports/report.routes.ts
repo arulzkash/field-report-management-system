@@ -14,6 +14,7 @@ export function createReportRouter(prisma: PrismaClient): Router {
   });
   router.use(authenticate(prisma));
   router.post('/', authorize('pelapor'), controller.create);
+  router.patch('/:id', authorize('pelapor'), controller.edit);
   router.get('/', authorize('pelapor', 'approver'), controller.list);
   router.get('/:id', authorize('pelapor', 'approver'), controller.detail);
 
