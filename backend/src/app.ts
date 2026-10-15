@@ -7,6 +7,7 @@ import { errorHandler } from './middleware/error-handler.js';
 import { validateOrigin } from './middleware/validate-origin.js';
 import { createAuthRouter } from './modules/auth/auth.routes.js';
 import { createReportRouter } from './modules/reports/report.routes.js';
+import { createUserRouter } from './modules/users/user.routes.js';
 
 type AppOptions = {
   prisma: PrismaClient;
@@ -48,6 +49,7 @@ export function createApp(options: AppOptions): Express {
 
   app.use('/api/auth', createAuthRouter(options.prisma, options.environment));
   app.use('/api/reports', createReportRouter(options.prisma));
+  app.use('/api/users', createUserRouter(options.prisma));
 
   app.use((_req, res) => {
     res.status(404).json({

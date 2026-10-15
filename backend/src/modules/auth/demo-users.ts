@@ -1,13 +1,13 @@
 import { z } from 'zod';
 import type { PrismaClient, Role } from '../../generated/prisma/client.js';
 import { safeUserSelect, type SafeUser } from './auth.types.js';
-import { demoPasswordSchema } from './auth.validation.js';
+import { passwordSchema } from './auth.validation.js';
 import { hashPassword, verifyPassword } from './password.js';
 
 const demoPasswordsSchema = z.object({
-  SEED_ADMIN_PASSWORD: demoPasswordSchema,
-  SEED_PELAPOR_PASSWORD: demoPasswordSchema,
-  SEED_APPROVER_PASSWORD: demoPasswordSchema,
+  SEED_ADMIN_PASSWORD: passwordSchema,
+  SEED_PELAPOR_PASSWORD: passwordSchema,
+  SEED_APPROVER_PASSWORD: passwordSchema,
 });
 
 export type DemoPasswords = z.infer<typeof demoPasswordsSchema>;

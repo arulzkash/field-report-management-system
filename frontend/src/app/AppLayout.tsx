@@ -25,6 +25,9 @@ export function AppLayout() {
       <header className="site-header">
         <span className="site-name">Field Report Management</span>
         <nav aria-label="Main navigation">
+          {session.user?.role === 'admin' && (
+            <NavLink to="/users/new">Create account</NavLink>
+          )}
           {session.user?.role === 'pelapor' && (
             <NavLink to="/reports">My reports</NavLink>
           )}

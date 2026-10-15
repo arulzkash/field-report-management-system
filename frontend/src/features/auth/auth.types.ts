@@ -14,7 +14,7 @@ export const roleLabels: Record<Role, string> = {
 };
 
 export const roleHomePaths: Record<Role, string> = {
-  admin: '/workspace/admin',
+  admin: '/users/new',
   pelapor: '/reports',
   approver: '/reports',
 };

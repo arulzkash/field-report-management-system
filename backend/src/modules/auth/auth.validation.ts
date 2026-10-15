@@ -1,10 +1,15 @@
 import { z } from 'zod';
 
-export const demoPasswordSchema = z.string().refine((value) => {
-  const length = Buffer.byteLength(value, 'utf8');
-
-  return length >= 12 && length <= 72;
-}, 'Password must contain 12-72 UTF-8 bytes.');
+export const passwordSchema = z
+  .string()
+  .refine(
+    (value) => Buffer.byteLength(value, 'utf8') >= 12,
+    'This password is too short. Try a longer password or a short phrase.',
+  )
+  .refine(
+    (value) => Buffer.byteLength(value, 'utf8') <= 72,
+    'This password is too long. Try a shorter phrase.',
+  );
 
 export const loginSchema = z.strictObject({
   email: z.string().trim().toLowerCase().pipe(z.email().max(254)),

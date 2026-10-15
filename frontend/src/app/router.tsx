@@ -12,6 +12,7 @@ import { ReportListPage } from '../features/reports/ReportListPage';
 import { CreateReportPage } from '../features/reports/CreateReportPage';
 import { ReportDetailPage } from '../features/reports/ReportDetailPage';
 import { EditReportPage } from '../features/reports/EditReportPage';
+import { CreateUserPage } from '../features/users/CreateUserPage';
 import { AppLayout } from './AppLayout';
 
 export function AppRoutes() {
@@ -24,6 +25,7 @@ export function AppRoutes() {
             <Route index element={<HomeRedirect />} />
             <Route element={<RequireRole role="admin" />}>
               <Route path="/workspace/admin" element={<WorkspacePage />} />
+              <Route path="/users/new" element={<CreateUserPage />} />
             </Route>
             <Route element={<RequireRole role="pelapor" />}>
               <Route path="/workspace/reporter" element={<WorkspacePage />} />
