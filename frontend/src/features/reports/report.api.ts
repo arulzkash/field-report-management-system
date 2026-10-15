@@ -1,0 +1,25 @@
+import { requestApi } from '../../lib/api';
+import type { CreateReportInput, Report } from './report.types';
+
+export async function listReports(signal: AbortSignal): Promise<Report[]> {
+  const response = await requestApi<{ data: Report[] }>('/reports', { signal });
+  return response.data;
+}
+
+export async function getReport(id: string, signal: AbortSignal): Promise<Report> {
+  const response = await requestApi<{ data: Report }>(
+    `/reports/${encodeURIComponent(id)}`,
+    {
+      signal,
+    },
+  );
+  return response.data;
+}
+
+export async function createReport(input: CreateReportInput): Promise<Report> {
+  const response = await requestApi<{ data: Report }>('/reports', {
+    method: 'POST',
+    body: input,
+  });
+  return response.data;
+}

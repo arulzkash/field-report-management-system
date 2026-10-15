@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../features/auth/AuthContext';
-import { roleHomePaths } from '../features/auth/auth.types';
 
 export function AppLayout() {
   const { session, signOut } = useAuth();
@@ -26,8 +25,13 @@ export function AppLayout() {
       <header className="site-header">
         <span className="site-name">Field Report Management</span>
         <nav aria-label="Main navigation">
-          <NavLink to={session.user ? roleHomePaths[session.user.role] : '/'}>
-            Workspace
+          {session.user?.role === 'pelapor' && (
+            <NavLink to="/reports">My reports</NavLink>
+          )}
+          <NavLink
+            to={`/workspace/${session.user?.role === 'pelapor' ? 'reporter' : session.user?.role}`}
+          >
+            Account
           </NavLink>
           <NavLink to="/status">System status</NavLink>
         </nav>

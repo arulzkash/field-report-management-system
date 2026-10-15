@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ApiError } from '../../lib/api';
 import * as authApi from './auth.api';
 import { AuthContext, type SessionState } from './AuthContext';
@@ -36,10 +36,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => controller.abort();
   }, []);
 
-  async function refreshSession(): Promise<void> {
+  const refreshSession = useCallback(async (): Promise<void> => {
     setSession({ status: 'loading', user: null });
     setSession(await resolveSession());
-  }
+  }, []);
 
   async function signIn(email: string, password: string): Promise<void> {
     const user = await authApi.login(email, password);

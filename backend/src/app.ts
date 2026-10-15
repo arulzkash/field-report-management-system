@@ -6,6 +6,7 @@ import { checkDatabase as queryDatabase } from './db/prisma.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { validateOrigin } from './middleware/validate-origin.js';
 import { createAuthRouter } from './modules/auth/auth.routes.js';
+import { createReportRouter } from './modules/reports/report.routes.js';
 
 type AppOptions = {
   prisma: PrismaClient;
@@ -19,7 +20,7 @@ export function createApp(options: AppOptions): Express {
 
   app.disable('x-powered-by');
   app.use('/api', validateOrigin(options.environment.APP_ORIGIN));
-  app.use(express.json({ limit: '16kb' }));
+  app.use(express.json({ limit: '64kb' }));
   app.use(cookieParser());
 
   app.get('/api/health', async (_req, res) => {
@@ -46,6 +47,7 @@ export function createApp(options: AppOptions): Express {
   });
 
   app.use('/api/auth', createAuthRouter(options.prisma, options.environment));
+  app.use('/api/reports', createReportRouter(options.prisma));
 
   app.use((_req, res) => {
     res.status(404).json({

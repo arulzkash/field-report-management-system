@@ -8,6 +8,9 @@ import {
 } from '../features/auth/SessionGuard';
 import { WorkspacePage } from '../features/auth/WorkspacePage';
 import { HealthPage } from '../features/health/HealthPage';
+import { ReportListPage } from '../features/reports/ReportListPage';
+import { CreateReportPage } from '../features/reports/CreateReportPage';
+import { ReportDetailPage } from '../features/reports/ReportDetailPage';
 import { AppLayout } from './AppLayout';
 
 export function AppRoutes() {
@@ -23,6 +26,9 @@ export function AppRoutes() {
             </Route>
             <Route element={<RequireRole role="pelapor" />}>
               <Route path="/workspace/reporter" element={<WorkspacePage />} />
+              <Route path="/reports" element={<ReportListPage />} />
+              <Route path="/reports/new" element={<CreateReportPage />} />
+              <Route path="/reports/:id" element={<ReportDetailPage />} />
             </Route>
             <Route element={<RequireRole role="approver" />}>
               <Route path="/workspace/approver" element={<WorkspacePage />} />
