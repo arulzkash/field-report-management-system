@@ -103,6 +103,155 @@ function decide(id: string, body: object, actor: keyof typeof users = 'approver'
     .send(body);
 }
 
+describe('decision history access', () => {
+  it('shows every reversal with safe actor fields and ascending report versions', async () => {
+    const report = await fixture();
+    await edit(report.id, { ...input, version: 1 });
+    await decide(report.id, { status: 'approved', version: 2 });
+    await decide(report.id, { status: 'rejected', version: 3 }, 'approverB');
+    await decide(report.id, { status: 'approved', version: 4 });
+    // Timestamp ordering must not override the committed report-version order.
+    await prisma.approvalHistory.updateMany({
+      where: { reportId: report.id, reportVersion: 3 },
+      data: { decidedAt: new Date('2026-10-16T00:00:00Z') },
+    });
+    const response = await request(app)
+      .get(`/api/reports/${report.id}/history`)
+      .set('Cookie', cookies.a);
+    expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body.data).toMatchObject([
+      {
+        fromStatus: 'pending',
+        toStatus: 'approved',
+        reportVersion: 3,
+        approver: {
+          id: users.approver.id,
+          name: 'approver',
+          email: 'approver@reports.test',
+        },
+      },
+      {
+        fromStatus: 'approved',
+        toStatus: 'rejected',
+        reportVersion: 4,
+        approver: {
+          id: users.approverB.id,
+          name: 'approverB',
+          email: 'approverb@reports.test',
+        },
+      },
+      {
+        fromStatus: 'rejected',
+        toStatus: 'approved',
+        reportVersion: 5,
+        approver: { id: users.approver.id },
+      },
+    ]);
+    expect(response.body.data).toHaveLength(3);
+    for (const entry of response.body.data) {
+      expect(Object.keys(entry).sort()).toEqual([
+        'approver',
+        'decidedAt',
+        'fromStatus',
+        'id',
+        'reportVersion',
+        'toStatus',
+      ]);
+      expect(Object.keys(entry.approver).sort()).toEqual(['email', 'id', 'name']);
+      expect(Number.isNaN(Date.parse(entry.decidedAt))).toBe(false);
+    }
+    expect(response.text).not.toMatch(/passwordHash|tokenHash|sessions/);
+    const stored = await prisma.approvalHistory.findMany({
+      where: { reportId: report.id },
+      orderBy: { reportVersion: 'asc' },
+      select: { id: true, decidedAt: true },
+    });
+    expect(
+      response.body.data.map((entry: { id: string; decidedAt: string }) => ({
+        id: entry.id,
+        decidedAt: entry.decidedAt,
+      })),
+    ).toEqual(
+      stored.map((entry) => ({ id: entry.id, decidedAt: entry.decidedAt.toISOString() })),
+    );
+  });
+
+  it.each(['approver', 'approverB'] as const)(
+    'allows %s to read either Reporter history',
+    async (actor) => {
+      for (const reporterId of [users.a.id, users.b.id]) {
+        const report = await fixture(reporterId);
+        await decide(report.id, { status: 'rejected', version: 1 });
+        const response = await request(app)
+          .get(`/api/reports/${report.id}/history`)
+          .set('Cookie', cookies[actor]);
+        expect(response.status).toBe(200);
+        expect(response.body.data).toHaveLength(1);
+        expect(response.body.data[0].toStatus).toBe('rejected');
+      }
+    },
+  );
+
+  it('returns the same 404 for foreign empty, foreign decided, and missing reports', async () => {
+    const empty = await fixture(users.b.id);
+    const decided = await fixture(users.b.id);
+    await decide(decided.id, { status: 'approved', version: 1 });
+    const responses = [];
+    for (const id of [empty.id, decided.id, randomUUID()]) {
+      const response = await request(app)
+        .get(`/api/reports/${id}/history?reporterId=${users.b.id}`)
+        .set('Cookie', cookies.a);
+      expect(response.status).toBe(404);
+      responses.push(response.body);
+    }
+    expect(responses[0]).toEqual(responses[1]);
+    expect(responses[1]).toEqual(responses[2]);
+    const owner = await request(app)
+      .get(`/api/reports/${decided.id}/history`)
+      .set('Cookie', cookies.b);
+    expect(owner.status).toBe(200);
+    expect(owner.body.data).toHaveLength(1);
+  });
+
+  it('denies Admin and anonymous history reads', async () => {
+    const report = await fixture();
+    await decide(report.id, { status: 'approved', version: 1 });
+    const path = `/api/reports/${report.id}/history`;
+    expect((await request(app).get(path)).status).toBe(401);
+    expect((await request(app).get(path).set('Cookie', cookies.admin)).status).toBe(403);
+  });
+
+  it('validates history UUIDs before database access', async () => {
+    const response = await request(app)
+      .get('/api/reports/not-a-uuid/history')
+      .set('Cookie', cookies.a);
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('INVALID_REPORT_ID');
+  });
+
+  it.each(['post', 'put', 'patch', 'delete'] as const)(
+    'exposes no %s history mutation',
+    async (method) => {
+      const report = await fixture();
+      await decide(report.id, { status: 'approved', version: 1 });
+      const before = await prisma.approvalHistory.findMany();
+      for (const path of [
+        `/api/reports/${report.id}/history`,
+        `/api/reports/${report.id}/history/${before[0]!.id}`,
+      ]) {
+        const client = request(app);
+        const response = await client[method](path)
+          .set('Cookie', cookies.approver)
+          .set('Origin', origin)
+          .send({ toStatus: 'rejected' });
+        expect(response.status).toBe(404);
+      }
+      expect(await prisma.approvalHistory.findMany()).toEqual(before);
+    },
+  );
+});
+
 describe('report decisions and atomic history', () => {
   it.each([
     ['pending', 'approved'],
@@ -608,13 +757,17 @@ describe('editing own pending reports', () => {
     expect(response.body.error.code).toBe('INVALID_REPORT_ID');
   });
 
-  it('keeps history read endpoints deferred to Slice 5', async () => {
-    const report = await fixture();
-    const response = await request(app)
-      .get(`/api/reports/${report.id}/history`)
-      .set('Cookie', cookies.approver);
-    expect(response.status).toBe(404);
-  });
+  it.each(['a', 'approver'] as const)(
+    'returns empty history for %s on an accessible report without decisions',
+    async (actor) => {
+      const report = await fixture();
+      const response = await request(app)
+        .get(`/api/reports/${report.id}/history`)
+        .set('Cookie', cookies[actor]);
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ data: [] });
+    },
+  );
 });
 
 describe('report creation', () => {

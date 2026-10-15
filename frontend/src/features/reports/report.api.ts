@@ -4,10 +4,22 @@ import type {
   DecisionStatus,
   EditReportInput,
   Report,
+  ReportHistoryEntry,
 } from './report.types';
 
 export async function listReports(signal: AbortSignal): Promise<Report[]> {
   const response = await requestApi<{ data: Report[] }>('/reports', { signal });
+  return response.data;
+}
+
+export async function getReportHistory(
+  id: string,
+  signal: AbortSignal,
+): Promise<ReportHistoryEntry[]> {
+  const response = await requestApi<{ data: ReportHistoryEntry[] }>(
+    `/reports/${encodeURIComponent(id)}/history`,
+    { signal },
+  );
   return response.data;
 }
 

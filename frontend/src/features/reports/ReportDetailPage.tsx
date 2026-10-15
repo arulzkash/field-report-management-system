@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ReportLoadState } from './ReportLoadState';
+import { ReportHistory } from './ReportHistory';
 import { ReportStatusBadge } from './ReportStatusBadge';
 import { formatReportDate } from './report-date';
 import { useReports } from './useReports';
@@ -66,6 +67,9 @@ export function ReportDetailPage() {
             </p>
           )}
         </article>
+      )}
+      {report && (
+        <ReportHistory key={`${report.id}:${report.version}`} reportId={report.id} />
       )}
     </main>
   );

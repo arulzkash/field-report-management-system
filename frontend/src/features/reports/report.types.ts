@@ -14,3 +14,12 @@ export type Report = {
 export type CreateReportInput = Pick<Report, 'name' | 'description'>;
 export type EditReportInput = CreateReportInput & Pick<Report, 'version'>;
 export type DecisionStatus = Exclude<ReportStatus, 'pending'>;
+
+export type ReportHistoryEntry = {
+  id: string;
+  fromStatus: ReportStatus;
+  toStatus: DecisionStatus;
+  reportVersion: number;
+  decidedAt: string;
+  approver: { id: string; name: string; email: string };
+};

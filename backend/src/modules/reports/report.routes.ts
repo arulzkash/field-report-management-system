@@ -4,6 +4,7 @@ import { authenticate } from '../../middleware/authenticate.js';
 import { authorize } from '../../middleware/authorize.js';
 import { createReportController } from './report.controller.js';
 import { createReportDecisionController } from './report-decision.controller.js';
+import { createReportHistoryController } from './report-history.controller.js';
 
 export function createReportRouter(prisma: PrismaClient): Router {
   const router = Router();
@@ -23,6 +24,11 @@ export function createReportRouter(prisma: PrismaClient): Router {
   );
   router.get('/', authorize('pelapor', 'approver'), controller.list);
   router.get('/:id', authorize('pelapor', 'approver'), controller.detail);
+  router.get(
+    '/:id/history',
+    authorize('pelapor', 'approver'),
+    createReportHistoryController(prisma),
+  );
 
   return router;
 }
